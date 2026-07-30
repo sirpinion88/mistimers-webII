@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Panel de Control & Timers MUDREAM</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      background-color: #0b0f19;
+      color: #e2e8f0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    }
+    .card-normal {
+      background-color: #111827;
+      border: 1px solid #1f293d;
+    }
+    .card-spawned {
+      background-color: #181119;
+      border: 2px solid #ef4444;
+      box-shadow: 0 0 15px rgba(239, 68, 68, 0.2);
+    }
+    .badge-ocr {
+      background-color: rgba(16, 185, 129, 0.15);
+      color: #10b981;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+    .badge-ocr-off {
+      background-color: rgba(107, 114, 128, 0.15);
+      color: #9ca3af;
+      border: 1px solid rgba(107, 114, 128, 0.3);
+    }
+  </style>
+</head>
+<body class="p-4 md:p-8">
+
+  <!-- ENCABEZADO Y FILTROS -->
+  <header class="text-center mb-8">
+    <h1 class="text-gray-400 text-sm tracking-wider uppercase mb-4">Panel de Control & Timers en Vivo 24/7</h1>
+    <div class="inline-flex flex-wrap justify-center gap-2 bg-[#131b2e] p-1.5 rounded-lg border border-[#1e293b]">
+      <button onclick="setFilter('TODOS')" id="btn-TODOS" class="px-5 py-2 rounded-md text-sm font-semibold transition-all bg-sky-500 text-white">TODOS</button>
+      <button onclick="setFilter('Server 1')" id="btn-Server 1" class="px-5 py-2 rounded-md text-sm font-semibold text-gray-400 hover:text-white transition-all">SERVER 1</button>
+      <button onclick="setFilter('Server 2')" id="btn-Server 2" class="px-5 py-2 rounded-md text-sm font-semibold text-gray-400 hover:text-white transition-all">SERVER 2</button>
+      <button onclick="setFilter('Server 3')" id="btn-Server 3" class="px-5 py-2 rounded-md text-sm font-semibold text-gray-400 hover:text-white transition-all">SERVER 3</button>
+      <button onclick="setFilter('Server 20')" id="btn-Server 20" class="px-5 py-2 rounded-md text-sm font-semibold text-gray-400 hover:text-white transition-all">SERVER 20 (VIP)</button>
+    </div>
+  </header>
+
+  <!-- CONTENEDOR DE TARJETAS DE BOSSES -->
+  <main id="cards-container" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 max-w-7xl mx-auto">
+    <!-- Generado dinámicamente -->
+  </main>
+
+  <script>
+    const socket = io();
+    let globalState = {};
+    let heartbeats = {};
+    let currentFilter = 'TODOS';
+
+    const DISPLAY_NAMES = {
+      "Borgar_1": "Borgar #1",
+      "Borgar_2": "Borgar #2",
+      "Vescrya": "Vescrya",
+      "Muggron": "Muggron",
+      "Kharzul": "Kharzul",
+      "Muggron_CW1": "Muggron (CW) #1",
+      "Muggron_CW2": "Muggron (CW) #2",
+      "Muggron_BK1": "Muggron (BK) #1",
+      "Muggron_BK2": "Muggron (BK) #2"
+    };
+
+    socket.on('init_state', (data) => {
+      globalState = data.gameState;
+      heartbeats = data.heartbeats;
+      render();
+    });
+
+    socket.on('boss_killed', (bossData) => {
+      if (!globalState[bossData.server]) globalState[bossData.server] = {};
+      globalState[bossData.server][bossData.bossId] = bossData;
+      render();
+    });
+
+    socket.on('heartbeat_update', (data) => {
+      heartbeats[data.server] = data.active;
+      render();
+    });
+
+    function setFilter(filter) {
+      currentFilter = filter;
+      document.querySelectorAll('header button').forEach(btn => {
+        btn.className = "px-5 py-2 rounded-md text-sm font-semibold text-gray-400 hover:text-white transition-all";
+      });
+      document.getElementById(`btn-${filter}`).className = "px-5 py-2 rounded-md text-sm font-semibold bg-sky-500 text-white transition-all";
+      render();
+    }
+
+    function render() {
+      const container = document.getElementById('cards-container');
+      container.innerHTML = '';
+
+      for (const serverName in globalState) {
+        if (currentFilter !== 'TODOS' && currentFilter !== serverName) continue;
+
+        const isOcrActive = !!heartbeats[serverName];
+
+        for (const bossId in globalState[serverName]) {
+          const boss = globalState[serverName][bossId];
+          const cardHtml = createCardElement(serverName, boss, isOcrActive);
+          container.appendChild(cardHtml);
+        }
+      }
+    }
+
+    function createCardElement(server, boss, isOcrActive) {
+      const card = document.createElement('div');
+      
+      let statusText = "SIN DATOS";
+      let statusClass = "text-gray-200 text-2xl font-bold";
+      let footerText = "Sin datos";
+      let isSpawned = false;
+
+      if (boss.respawnTime) {
+        const now = new Date();
+        const respawn = new Date(boss.respawnTime);
+        const kill = new Date(boss.lastKillTime);
+
+        // Formatear hora de muerte
+        const hours = kill.getHours();
+        const minutes = kill.getMinutes().toString().padStart(2, '0');
+        const ampm = hours >= 12 ? 'p.m.' : 'a.m.';
+        const formattedHours = (hours % 12 || 12).toString().padStart(2, '0');
+        footerText = `Muerte: ${formattedHours}:${minutes} ${ampm}`;
+
+        const diffMs = respawn - now;
+
+        if (diffMs <= 0) {
+          isSpawned = true;
+          statusText = "¡SPAWNED!";
+          statusClass = "text-red-500 text-2xl font-black tracking-wide animate-pulse";
+        } else {
+          const totalSecs = Math.floor(diffMs / 1000);
+          const hrs = Math.floor(totalSecs / 3600);
+          const mins = Math.floor((totalSecs % 3600) / 60);
+          statusText = `${hrs}h ${mins}m`;
+          statusClass = "text-emerald-400 text-3xl font-bold tracking-wider";
+        }
+      }
+
+      card.className = `p-4 rounded-xl flex flex-col justify-between min-h-[190px] transition-all ${isSpawned ? 'card-spawned' : 'card-normal'}`;
+
+      const ocrBadge = isOcrActive 
+        ? `<span class="badge-ocr text-[10px] px-2 py-0.5 rounded font-semibold uppercase">● OCR ACTIVO</span>`
+        : `<span class="badge-ocr-off text-[10px] px-2 py-0.5 rounded font-semibold uppercase">● OCR OFF</span>`;
+
+      card.innerHTML = `
+        <div>
+          <div class="flex justify-between items-center mb-3">
+            ${ocrBadge}
+            <span class="bg-slate-800 text-slate-300 text-xs px-2.5 py-0.5 rounded border border-slate-700">${server}</span>
+          </div>
+          <h2 class="text-center font-extrabold text-slate-100 text-lg mb-2">${DISPLAY_NAMES[boss.bossId] || boss.bossId}</h2>
+          <div class="text-center my-2">
+            <span class="${statusClass}">${statusText}</span>
+          </div>
+        </div>
+        <div class="text-center mt-3 pt-2 border-t border-slate-800/80">
+          <span class="text-xs text-slate-400">${footerText}</span>
+        </div>
+      `;
+
+      return card;
+    }
+
+    // Actualizar los contadores cada 1 segundo dinámicamente
+    setInterval(render, 1000);
+  </script>
+</body>
+</html>
